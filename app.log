@@ -1,0 +1,4 @@
+2024-06-29 14:42:25 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2024-06-29 14:42:41 - INFO - Loading faiss.
+2024-06-29 14:42:41 - INFO - Successfully loaded faiss.
+2024-06-29 14:43:49 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
