@@ -10,7 +10,9 @@ from langchain.embeddings import HuggingFaceEmbeddings
 from datetime import datetime
 import logging
 from collections import deque
+import os
 
+# Improved logging configuration
 logging.basicConfig(
     filename='app.log',
     level=logging.INFO,
@@ -18,7 +20,19 @@ logging.basicConfig(
     datefmt='%Y-%m-%d %H:%M:%S'
 )
 
+@st.cache_data
+def load_embedding_model(model_path, normalize_embedding=True):
+    """Load and cache the embedding model."""
+    return HuggingFaceEmbeddings(
+        model_name=model_path,
+        model_kwargs={'device':'cpu'},
+        encode_kwargs = {
+            'normalize_embeddings': normalize_embedding
+        }
+    )
+
 def get_pdf_text(pdf_docs):
+    """Extract text from PDF documents."""
     text_pages = []
     for pdf in pdf_docs:
         try:
@@ -32,23 +46,14 @@ def get_pdf_text(pdf_docs):
             st.error(f"Error reading PDF file {pdf.name}. Check logs for details.")
     return text_pages
 
-def load_embedding_model(model_path, normalize_embedding=True):
-    return HuggingFaceEmbeddings(
-        model_name=model_path,
-        model_kwargs={'device':'cpu'},
-        encode_kwargs = {
-            'normalize_embeddings': normalize_embedding
-        }
-    )
-
 def get_text_chunks(text_pages):
+    """Split text into chunks for processing."""
     try:
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
         chunks = []
         for text, page_num, pdf_name in text_pages:
             split_chunks = text_splitter.split_text(text)
-            for chunk in split_chunks:
-                chunks.append((chunk, page_num, pdf_name))
+            chunks.extend((chunk, page_num, pdf_name) for chunk in split_chunks)
         return chunks
     except Exception as e:
         logging.error(f"Error splitting text into chunks: {e}")
@@ -56,6 +61,7 @@ def get_text_chunks(text_pages):
         return []
 
 def get_vector_store(text_chunks):
+    """Create and save vector store from text chunks."""
     try:
         embeddings = load_embedding_model(model_path="all-MiniLM-L6-v2")
         texts = [chunk for chunk, _, _ in text_chunks]
@@ -67,28 +73,27 @@ def get_vector_store(text_chunks):
         st.error("Error creating vector store. Check logs for details.")
 
 def get_conversational_chain():
+    """Set up the conversational chain for question answering."""
     try:
         prompt_template = """
-        You are an respectful and honest assistant. You have to answer the user's 
+        You are a respectful and honest assistant. Answer the user's 
         questions using only the context provided to you.
-        You have to explain in a way so that the person understands well the concept and is clear regarding the same.
+        Explain in a way that ensures the person understands the concept clearly.
         History:\n{memory}
         Context:\n {context}?\n
         Question: \n{question}\n
-        Answer in as detail as possible
-
-        Answer:
+        Answer in as much detail as possible:
         """
         llm = Ollama(model="llama3", temperature=0)
         prompt = PromptTemplate(template=prompt_template, input_variables=["memory", "context", "question"])
-        chain = load_qa_chain(llm, chain_type="stuff", prompt=prompt)
-        return chain
+        return load_qa_chain(llm, chain_type="stuff", prompt=prompt)
     except Exception as e:
         logging.error(f"Error setting up conversational chain: {e}")
         st.error("Error setting up conversational chain. Check logs for details.")
         return None
 
 def user_input(user_question, memory):
+    """Process user input and generate a response."""
     try:
         embeddings = load_embedding_model(model_path="all-MiniLM-L6-v2")
         new_db = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
@@ -97,18 +102,17 @@ def user_input(user_question, memory):
         chain = get_conversational_chain()
         if chain:
             response = chain({"memory": memory, "input_documents": docs, "question": user_question}, return_only_outputs=True)
-
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             st.write("Reply: ", response["output_text"])
             citations = [
-                f"PDF `{doc.metadata['pdf_name']}`, Page `{doc.metadata['page_num']}`: {doc.page_content[:100]} . . . . . . .{doc.page_content[-50:]}"
+                f"PDF `{doc.metadata['pdf_name']}`, Page `{doc.metadata['page_num']}`: {doc.page_content[:100]} ... {doc.page_content[-50:]}"
                 for doc in docs
             ]
             if citations:
-                st.write("`CITATIONS (for the above response)`")
-                for role in citations:
-                    st.write(role)
+                st.write("CITATIONS (for the above response)")
+                for citation in citations:
+                    st.write(citation)
                 st.write("---------")
             return timestamp, response['output_text']
         else:
@@ -119,56 +123,67 @@ def user_input(user_question, memory):
         st.error("Error processing user input. Check logs for details.")
         return None, None
 
+@st.cache_data
 def read_last_lines(filename, lines_count):
-    with open(filename, 'r') as file:
-        return ''.join(deque(file, maxlen=lines_count))
+    """Read the last n lines from a file."""
+    try:
+        with open(filename, 'r') as file:
+            return ''.join(deque(file, maxlen=lines_count))
+    except Exception as e:
+        logging.error(f"Error reading log file: {e}")
+        return "Error reading log file. Check logs for details."
 
 def main():
-    st.set_page_config(page_title="Alameno Bot")
-    st.header("ALAN BOT")
+    st.set_page_config(page_title="DOCHAT")
+    st.header("DOCHAT")
 
     if 'chat_history' not in st.session_state:
         st.session_state['chat_history'] = []
 
-    user_question = st.text_input("Ask a Question from the PDF Files")
+    # Main chat interface
+    user_question = st.text_input("Ask a question about the uploaded PDFs")
 
     if user_question:
         timestamp, ai_response = user_input(user_question, st.session_state['chat_history'])
         if timestamp and ai_response:
-            st.session_state['chat_history'].append(("----------\n`Time`", timestamp))
-            st.session_state['chat_history'].append(("`USER`", user_question))
-            st.session_state['chat_history'].append(("`AI`", ai_response))
+            st.session_state['chat_history'].append(("----------\nTime", timestamp))
+            st.session_state['chat_history'].append(("USER", user_question))
+            st.session_state['chat_history'].append(("AI", ai_response))
 
+    # Sidebar
     with st.sidebar:
-        st.title("Menu:")
-        on = st
+        st.title("Menu")
         pdf_docs = st.file_uploader("Upload your PDF Files", accept_multiple_files=True, type="pdf")
 
-        if st.button("Submit & Process"):
+        if st.button("Process PDFs"):
             with st.spinner("Processing..."):
                 text_pages = get_pdf_text(pdf_docs)
                 if text_pages:
                     text_chunks = get_text_chunks(text_pages)
                     if text_chunks:
                         get_vector_store(text_chunks)
-                        st.success("Done")
+                        st.success("PDFs processed successfully!")
+                    else:
+                        st.error("Failed to chunk text. Check logs for details.")
                 else:
                     st.error("Failed to process PDF files. Check logs for details.")
 
-        st.write("*`by Ayon Somaddar`*")
+        if st.button("Clear Chat History"):
+            st.session_state['chat_history'] = []
+            st.success("Chat history cleared!")
 
-    if st.session_state['chat_history']:
-        st.title("Chat History")
-        for role, text in st.session_state['chat_history']:
-            st.write(f"{role}: {text}")
-        st.write("-----")
-
-    with st.sidebar:
-        on = st.checkbox("log")
-        if on:
-            st.title("Logs")
-            last_lines = read_last_lines("app.log", 5)
+        show_logs = st.checkbox("Show Logs")
+        if show_logs:
+            st.subheader("Recent Logs")
+            last_lines = read_last_lines("app.log", 10)
             st.text(last_lines)
+
+    # Display chat history
+    if st.session_state['chat_history']:
+        st.subheader("Chat History")
+        for role, text in st.session_state['chat_history']:
+            st.text(f"{role}: {text}")
+        st.markdown("---")
 
 if __name__ == "__main__":
     main()

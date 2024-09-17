@@ -2,3 +2,10 @@
 2024-06-29 14:42:41 - INFO - Loading faiss.
 2024-06-29 14:42:41 - INFO - Successfully loaded faiss.
 2024-06-29 14:43:49 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2024-09-17 15:38:22 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2024-09-17 15:39:04 - INFO - Loading faiss with AVX2 support.
+2024-09-17 15:39:05 - INFO - Successfully loaded faiss with AVX2 support.
+2024-09-17 15:39:18 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2024-09-17 16:12:40 - INFO - Load pretrained SentenceTransformer: all-MiniLM-L6-v2
+2024-09-17 16:13:20 - INFO - Loading faiss with AVX2 support.
+2024-09-17 16:13:20 - INFO - Successfully loaded faiss with AVX2 support.
